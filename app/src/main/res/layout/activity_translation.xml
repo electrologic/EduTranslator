@@ -98,7 +98,7 @@
             android:layout_weight="0.025">
 
             <Button
-                android:id="@+id/button"
+                android:id="@+id/btnHistoryFavorites"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="10sp"
@@ -106,10 +106,10 @@
                 android:layout_marginTop="6dp"
                 android:layout_marginLeft="20dp"
                 android:layout_marginRight="15dp"
-                android:text="@string/history_faorites" />
+                android:text="@string/history_favorites" />
 
             <Button
-                android:id="@+id/button1"
+                android:id="@+id/btnAddToFavorites"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="10sp"

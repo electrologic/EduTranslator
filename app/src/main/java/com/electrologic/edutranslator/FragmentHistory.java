@@ -1,4 +1,4 @@
-package com.example.sergei.tabbedexample;
+package com.electrologic.edutranslator;
 
 import android.support.v4.app.Fragment;
 import android.os.Bundle;

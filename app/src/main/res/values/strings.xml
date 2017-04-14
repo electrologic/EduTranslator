@@ -9,5 +9,6 @@
     <string name="text_arrow">↔</string>
 
     <string name="add_to_favorites">Добавить в избранное</string>
-    <string name="history_faorites">История/Избранное</string>
+    <string name="history_favorites">История/Избранное</string>
+
 </resources>
