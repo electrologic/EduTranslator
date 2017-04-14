@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">EduTranslator</string>
+
+    <string name="english_lang">Английский</string>
+    <string name="french_lang">Французский</string>
+    <string name="german_lang">Немецкий</string>
+    <string name="russian_lang">Русский</string>
+
+    <string name="text_arrow">↔</string>
+
+    <string name="add_to_favorites">Добавить в избранное</string>
+    <string name="history_faorites">История/Избранное</string>
+</resources>
