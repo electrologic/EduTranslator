@@ -10,8 +10,14 @@
  */
 package com.electrologic.edutranslator;
 
+
 import android.os.Build;
+import android.os.Bundle;
+import android.os.AsyncTask;
 import android.support.v7.app.AppCompatActivity;
+
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.Spinner;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -22,8 +28,7 @@ import android.view.View.OnClickListener;
 import android.content.Intent;
 import android.util.Log;
 import android.text.Html;
-import android.os.Bundle;
-import android.os.AsyncTask;
+
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.InputStream;
@@ -49,6 +54,7 @@ public class TranslationActivity extends AppCompatActivity
     static String[] langTags = {"en", "de", "ru", "fr"};
     String translatorText = " ";
     String dictionaryText = " ";
+    HttpPostTask httpPostTask;
 
     // ключ Yandex API переводчик
     static final String apiKeyTranslator = "trnsl.1.1.20170417T075753Z.bee3a11ff099758f.c21fd8ae398d3ff4a57a478779479fb5f0a91f27";
@@ -90,10 +96,50 @@ public class TranslationActivity extends AppCompatActivity
 
         textViewTranslator = (TextView) findViewById(R.id.tvTranslator);
         textViewDictionary = (TextView) findViewById(R.id.tvDictionary);
-        editText = (EditText) findViewById(R.id.editText);
 
-        // иницализируем парсер JSON, который будем получать в результате HTTP POST запросов
-        jsonConverter = JsonConverter.init(1024, 2048);
+        editText = (EditText) findViewById(R.id.editText);
+        // обработчик изменения текста в EditText
+        editText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            /**
+             * Метод обработки факта изменения во вводимом тексте виджета TextView
+             * Вызывается автоматически при вводе или стирании очередного символа
+             */
+            @Override
+            public void afterTextChanged(Editable s)
+            {
+                // если поле ввода текста для перевода не пустое
+                if (!(editText.getText().toString().equals("")))
+                {
+                    // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
+                    langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
+                            langTags[langTranslateSelectSpinner.getSelectedItemPosition()];
+                    // непосредственно текст для перевода (содержимое TextView)
+                    inputText = editText.getText().toString();
+
+                    // если еще идет процесс http запроса для перевода с прошлого ввода символа
+                    if (httpPostTask != null)
+                        httpPostTask.cancel(true); // отмена процесса http запроса
+
+                    // запустить новый процесс http запроса
+                    httpPostTask = new HttpPostTask();
+                    httpPostTask.execute();
+
+                } else // иначе: если символов в поле ввода текста нет
+                {
+                    textViewTranslator.setText(" ");
+                    textViewDictionary.setText(" ");
+                }
+            }
+        });
+
 
         // кнопка "история/избранное"
         Button buttonHistoryFavorites = (Button) findViewById(R.id.btnHistoryFavorites);
@@ -106,21 +152,6 @@ public class TranslationActivity extends AppCompatActivity
             }
         });
 
-        // кнопка "перевести"
-        Button buttonTranslate = (Button) findViewById(R.id.btnTranslate);
-        buttonTranslate.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v)
-            {
-                // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
-                langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
-                           langTags[langTranslateSelectSpinner.getSelectedItemPosition()];
-
-                inputText = editText.getText().toString();
-                new MyTask().execute();
-            }
-        });
-
 
         if (savedInstanceState == null)
         {
@@ -128,6 +159,9 @@ public class TranslationActivity extends AppCompatActivity
             langTranslateSelectSpinner.setSelection(2);
         }
 
+
+        // иницализируем парсер JSON, который будем получать в результате HTTP POST запросов
+        jsonConverter = JsonConverter.init(1024, 2048);
 /*
         // Check whether we're recreating a previously destroyed instance
         if (savedInstanceState != null)
@@ -194,7 +228,7 @@ public class TranslationActivity extends AppCompatActivity
     /**
      * Класс, реализующий выполнение HTTP POST запроса к удаленному сервису (запрос работает в фоне)
      */
-    private class MyTask extends AsyncTask<Void, Void, String[]>
+    private class HttpPostTask extends AsyncTask<Void, Void, String[]>
     {
         private String httpJsonResult[];
 
