@@ -9,6 +9,11 @@ import android.support.v4.app.FragmentPagerAdapter;
 import android.support.v4.view.ViewPager;
 import android.os.Bundle;
 
+import android.widget.Button;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.content.Intent;
+
 
 public class HistoryFavoritesActivity extends AppCompatActivity {
 
@@ -44,6 +49,16 @@ public class HistoryFavoritesActivity extends AppCompatActivity {
         TabLayout tabLayout = (TabLayout) findViewById(R.id.tabs);
         tabLayout.setupWithViewPager(mViewPager);
 
+        Button buttonHistoryFavorites = (Button) findViewById(R.id.btnReturnToTranslate);
+
+        buttonHistoryFavorites.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v)
+            {
+                Intent intent = new Intent(HistoryFavoritesActivity.this, TranslationActivity.class);
+                startActivity(intent);
+            }
+        });
     }
 
 

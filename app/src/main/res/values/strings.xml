@@ -8,7 +8,11 @@
 
     <string name="text_arrow">↔</string>
 
-    <string name="add_to_favorites">Добавить в избранное</string>
+    <string name="make_translation">Перевести</string>
     <string name="history_favorites">История/Избранное</string>
+    <string name="back_to_translate">Перевод</string>
+
+    <string name="dictionaryDataError">ошибка в данных, полученных от Yandex словаря</string>
+    <string name="translatorDataError">ошибка в данных, полученных от Yandex переводчика</string>
 
 </resources>
