@@ -18,6 +18,7 @@ import android.support.v7.app.AppCompatActivity;
 
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.widget.AdapterView;
 import android.widget.Spinner;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -50,8 +51,10 @@ public class TranslationActivity extends AppCompatActivity
     String inputText; // текст, вводимый для перевода
     String langPare; // тэг с парой языков для POST запроса (вида "en-ru", "fr-de" или проч.)
     JsonConverter jsonConverter;
-    static String[] langStrings = {"Английский", "Немецкий", "Русский", "Французский"};
-    static String[] langTags = {"en", "de", "ru", "fr"};
+    final static String[] langStrings = {"Английский", "Немецкий", "Русский", "Французский"};
+    final static String[] langTags = {"en", "de", "ru", "fr"};
+    int savedSelectedLang;
+    int savedSelectedLangTranslate;
     String translatorText = " ";
     String dictionaryText = " ";
     HttpPostTask httpPostTask;
@@ -70,7 +73,7 @@ public class TranslationActivity extends AppCompatActivity
 
 
     @Override
-    protected void onCreate(Bundle savedInstanceState)
+    protected void onCreate(final Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_translation);
@@ -85,6 +88,33 @@ public class TranslationActivity extends AppCompatActivity
         // Применяем адаптер к элементу spinner
         langSelectSpinner.setAdapter(selectAdapter);
 
+        // обрботчик выбора (из выпадающего списка) языка вводимого текста
+        langSelectSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener()
+        {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id)
+            {
+                // если выбранный элемент перечня для языка вводимого текста не соответствует
+                // тому, который был выбран до этого (т.е. если произошла смена)
+                if (position != savedSelectedLang) {
+                    // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
+                    langPare = langTags[position] + "-" +
+                               langTags[langTranslateSelectSpinner.getSelectedItemPosition()];
+
+                    savedSelectedLang = position; // сохраняем выбор для следующей смены
+
+                    // При смене языка вводимого текста HTTP post запрос не формируется, поскольку,
+                    // если уже был введен какой-то текст, то все равно потребуется его ввести
+                    // заново уже на новом выбранном языке
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
+
 
         // инициализация выпадающего перечня (Spinner) для выбора языка перевода вводимого текста
         //
@@ -92,7 +122,79 @@ public class TranslationActivity extends AppCompatActivity
         // Применяем адаптер к элементу spinner
         langTranslateSelectSpinner.setAdapter(selectAdapter);
 
-        //TextView textViewLangSwap = (TextView) findViewById(R.id.textViewLangSwap);
+        // обрботчик выбора (из выпадающего списка) языка перевода введенного текста
+        langTranslateSelectSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener()
+        {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id)
+            {
+                // если выбранный элемент перечня для языка перевода вводимого текста не
+                // соответствует тому, который был выбран до этого (т.е. если произошла смена)
+                if (position != savedSelectedLangTranslate) {
+                    // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
+                    langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
+                               langTags[position];
+
+                    savedSelectedLangTranslate = position; // сохраняем выбор для следующей смены
+
+                    // если поле для ввода текста не пустое, можно формировать HTTP post запрос
+                    if (!(editText.getText().toString().isEmpty())) {
+                        // непосредственно текст для перевода (содержимое TextView)
+                        inputText = editText.getText().toString();
+
+                        // если еще идет процесс http запроса для перевода с прошлого ввода символа
+                        if (httpPostTask != null)
+                            httpPostTask.cancel(true); // отмена процесса http запроса
+
+                        // запустить новый процесс http запроса
+                        httpPostTask = new HttpPostTask();
+                        httpPostTask.execute();
+                    }
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
+
+
+        // TextView со значком взаимного переключения языков: язык вводимого текста усанавливается
+        // в соответствии с тем, языком который выбран для перевода, а язык перевода, наоборот, на
+        // тот, который был выбран для ввода текста
+        TextView textViewLangSwap = (TextView) findViewById(R.id.textViewLangSwap);
+        // обработка нажатия для данного элемента
+        textViewLangSwap.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // если выбранный язык вводимого текста и выбранный язык перевода не совпадают
+                if (savedSelectedLang != savedSelectedLangTranslate)
+                {
+                    // устанавливаем выбранный элемент в выпадающем меню языков для вводимого текста
+                    // таким, который был выбран в меню языков перевода, а выбранный элемент в
+                    // выпадающем меню языков для перевода - наоборот
+                    langSelectSpinner.setSelection(savedSelectedLangTranslate);
+                    langTranslateSelectSpinner.setSelection(savedSelectedLang);
+
+                    // сохраняем выбор
+                    savedSelectedLang = langSelectSpinner.getSelectedItemPosition();
+                    savedSelectedLangTranslate = langTranslateSelectSpinner.getSelectedItemPosition();
+
+                    // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
+                    langPare = langTags[savedSelectedLang] + "-" + langTags[savedSelectedLangTranslate];
+
+                    Log.d("info", langPare);
+
+                    // после смены языков, в область ввода теста помещаем текст перевода, который
+                    // был получен от сервиса Yandex переводчик (или "пробел", если перевода нет)
+                    editText.setText(JsonConverter.getFirstTranslation());
+                }
+            }
+        });
+
+
+
 
         textViewTranslator = (TextView) findViewById(R.id.tvTranslator);
         textViewDictionary = (TextView) findViewById(R.id.tvDictionary);
@@ -116,7 +218,7 @@ public class TranslationActivity extends AppCompatActivity
             public void afterTextChanged(Editable s)
             {
                 // если поле ввода текста для перевода не пустое
-                if (!(editText.getText().toString().equals("")))
+                if (!(editText.getText().toString().isEmpty()))
                 {
                     // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
                     langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
@@ -153,10 +255,13 @@ public class TranslationActivity extends AppCompatActivity
         });
 
 
+        // устанавливаем выбор языка текста и языка перевода текста по-умолчанию:
         if (savedInstanceState == null)
         {
             langSelectSpinner.setSelection(0);
+            savedSelectedLang = 0; // сохраняем индекс выбранного языка вводимого текста
             langTranslateSelectSpinner.setSelection(2);
+            savedSelectedLangTranslate = 2; // сохраняем индекс выбранного языка перевода
         }
 
 

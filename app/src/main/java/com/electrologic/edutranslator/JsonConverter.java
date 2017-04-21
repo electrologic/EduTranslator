@@ -28,6 +28,7 @@ public class JsonConverter
     private static Map<String, String> speechPartMap; // таблица (ключ-значение) с обозначениями частей речи
     private static StringBuffer dictionaryBuffer; // буфер с переводом Yandex словаря (+ html тэги)
     private static StringBuffer translatorBuffer; // буфер с переводом Yandex переводчика (+ html тэги)
+    private static String firstTranslationText; // строка с вариантом текста от переводчика (без тэгов)
 
 
     /** Функция однократной инициализация по принципу singleton
@@ -57,6 +58,8 @@ public class JsonConverter
             speechPartMap.put("conjunction","союз");
             speechPartMap.put("number","числ.");
             speechPartMap.put("article"," ");
+
+            firstTranslationText = " ";
 
             // инициализация буфера словаря, в который будет помещаться результат парсинга JSON
             if (initialDictionaryBufferSize > 0)
@@ -332,6 +335,10 @@ public class JsonConverter
                 translatorBuffer.append("</font><br>"); // переход на новую строка
             }
 
+            // сохраняем самый первый (или, как правило, единственный) вариант перевода в чистом
+            // виде (без html тэгов) т.к. он может потребоваться для ф-ии переключения языков
+            firstTranslationText = transText.getString(0);
+
         } catch (JSONException e)
         {
             e.printStackTrace();
@@ -341,6 +348,16 @@ public class JsonConverter
         return translatorBuffer.toString();
     }
 
+
+    /**
+     * Геттер для получения варианта перевода от сервиса Yandex переводчик в виде строки без
+     * HTML тэгов
+     * @return строка без HTML тэгов
+     */
+    public static String getFirstTranslation()
+    {
+        return firstTranslationText;
+    }
 }
 
 
