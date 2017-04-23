@@ -332,7 +332,11 @@ public class JsonConverter
 
                 translatorBuffer.append("<font color=\"black\">"); // тэг: текст перевода - черный
                 translatorBuffer.append(transText.getString(i)); // помещаем текст перевода
-                translatorBuffer.append("</font><br>"); // переход на новую строка
+
+                // переход на новую строку только если кол-во переводов больше одного и текущий (i)
+                // перевод не последний из всех
+                if (transText.length() > 1 && i < (transText.length() - 1))
+                    translatorBuffer.append("</font><br>"); // переход на новую строка
             }
 
             // сохраняем самый первый (или, как правило, единственный) вариант перевода в чистом

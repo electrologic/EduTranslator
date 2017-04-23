@@ -58,6 +58,8 @@ public class TranslationActivity extends AppCompatActivity
     String translatorText = " ";
     String dictionaryText = " ";
     HttpPostTask httpPostTask;
+    TranslationCache cache; // пул для кэширования результатов HTTP POST запросов
+    final int TRANSLATION_CACHE_POOL_SIZE = 20; // максимальное кол-во кэшируемых результатов запросов
 
     // ключ Yandex API переводчик
     static final String apiKeyTranslator = "trnsl.1.1.20170417T075753Z.bee3a11ff099758f.c21fd8ae398d3ff4a57a478779479fb5f0a91f27";
@@ -130,26 +132,13 @@ public class TranslationActivity extends AppCompatActivity
             {
                 // если выбранный элемент перечня для языка перевода вводимого текста не
                 // соответствует тому, который был выбран до этого (т.е. если произошла смена)
-                if (position != savedSelectedLangTranslate) {
-                    // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
-                    langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
-                               langTags[position];
+                if (position != savedSelectedLangTranslate)
+                {
+                    savedSelectedLangTranslate = position; // сохраняем выбор для следующей смены языка
 
-                    savedSelectedLangTranslate = position; // сохраняем выбор для следующей смены
-
-                    // если поле для ввода текста не пустое, можно формировать HTTP post запрос
-                    if (!(editText.getText().toString().isEmpty())) {
-                        // непосредственно текст для перевода (содержимое TextView)
-                        inputText = editText.getText().toString();
-
-                        // если еще идет процесс http запроса для перевода с прошлого ввода символа
-                        if (httpPostTask != null)
-                            httpPostTask.cancel(true); // отмена процесса http запроса
-
-                        // запустить новый процесс http запроса
-                        httpPostTask = new HttpPostTask();
-                        httpPostTask.execute();
-                    }
+                    // запускаем фоновую задачу с HTTP POST запросами для получения перевода, либо
+                    // извлекаем данные из кэша, если аналогичные запросы уже имели место быть
+                    runQueryOrGetCache();
                 }
             }
 
@@ -217,28 +206,9 @@ public class TranslationActivity extends AppCompatActivity
             @Override
             public void afterTextChanged(Editable s)
             {
-                // если поле ввода текста для перевода не пустое
-                if (!(editText.getText().toString().isEmpty()))
-                {
-                    // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
-                    langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
-                            langTags[langTranslateSelectSpinner.getSelectedItemPosition()];
-                    // непосредственно текст для перевода (содержимое TextView)
-                    inputText = editText.getText().toString();
-
-                    // если еще идет процесс http запроса для перевода с прошлого ввода символа
-                    if (httpPostTask != null)
-                        httpPostTask.cancel(true); // отмена процесса http запроса
-
-                    // запустить новый процесс http запроса
-                    httpPostTask = new HttpPostTask();
-                    httpPostTask.execute();
-
-                } else // иначе: если символов в поле ввода текста нет
-                {
-                    textViewTranslator.setText(" ");
-                    textViewDictionary.setText(" ");
-                }
+                // запускаем фоновую задачу с HTTP POST запросами для получения перевода, либо
+                // извлекаем данные из кэша, если аналогичные запросы уже имели место быть
+                runQueryOrGetCache();
             }
         });
 
@@ -267,6 +237,10 @@ public class TranslationActivity extends AppCompatActivity
 
         // иницализируем парсер JSON, который будем получать в результате HTTP POST запросов
         jsonConverter = JsonConverter.init(1024, 2048);
+
+        // инициализируем пул для кэширования результатов HTTP POST запросов
+        cache = new TranslationCache(TRANSLATION_CACHE_POOL_SIZE);
+
 /*
         // Check whether we're recreating a previously destroyed instance
         if (savedInstanceState != null)
@@ -310,25 +284,137 @@ public class TranslationActivity extends AppCompatActivity
         // Always call the superclass so it can restore the view hierarchy
         super.onRestoreInstanceState(savedInstanceState);
 
-        textViewSetHtmlText(textViewTranslator, savedInstanceState.getString(TRANSLATOR_TEXT_KEY));
-        textViewSetHtmlText(textViewDictionary, savedInstanceState.getString(DICTIONARY_TEXT_KEY));
+
+        // вывод сохраненных полей для обработанных ответов переводчика и словаря (с HTML тэгами) в
+        // соответствующие TextView
+        printQueryResults(savedInstanceState.getString(TRANSLATOR_TEXT_KEY),
+                          savedInstanceState.getString(DICTIONARY_TEXT_KEY));
     }
 
 
     /**
-     * Метод для вывода текста с тэгами HTML в заданный TextView
-     * @param textView - виджет TextView, в который требуется вывести строку с HTML тэгами
-     * @param htmlText - строка с текстом, содержащим HTML тэги
+     * Метод, запускающий асинхронно (в фоне) задачу с HTTP POST запросами к Yandex переводчику и
+     * Yandex словарю, либо извлекающий данные из кэша, если аналогичные запросы ранее уже имели
+     * место быть (чтобы повторно запросы не выполнять)
      */
-    private void textViewSetHtmlText(TextView textView, String htmlText)
+    private void runQueryOrGetCache()
     {
-        // проверка версии SDK, для того, чтобы не вызывать устаревший (deprecated) метод
-        if (Build.VERSION.SDK_INT > 24)
-            textView.setText(Html.fromHtml(htmlText, Html.FROM_HTML_MODE_LEGACY));
-        else
-            textView.setText(Html.fromHtml(htmlText));
+        boolean isCacheFound = false;
+
+        // если поле ввода текста для перевода не пустое
+        if (!(editText.getText().toString().isEmpty()))
+        {
+            // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
+            langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
+                       langTags[langTranslateSelectSpinner.getSelectedItemPosition()];
+            // непосредственно текст для перевода (содержимое TextView)
+            inputText = editText.getText().toString();
+
+            // ищем совпадение вводимого текста (и выбранной пары языков) с ранее
+            // кэшированным результатом запросов к Yandex словарю и Yandex переводчику,
+            // чтобы не делать лишние запросы, а достать результат перевода из кэша
+            for (int i = 0; i < cache.getSize(); i++)
+            {
+                // если совпадение в кэше обнаружено (т.е. в кэше обнаружена информация по
+                // проведенному ранее HTTP POST запросу, у которого входные параметры
+                // (введенный текст для перевода и тэг с парой языков) совпадают с теми,
+                // которые в данный момент имеют место быть)
+                if (cache.get(i).text.equals(inputText) && cache.get(i).langPare.equals(langPare)) {
+                    Log.d("info", "cache found");
+
+                    // извлекаем из кэша результат запроса к Yandex переводчику в виде JSON
+                    // строки и конвертируем в текст с HTML тэгами для отображения в TextView
+                    String translatorText = JsonConverter.prepareTranslatorText(cache.get(i).translatorJsonResult);
+
+                    // извлекаем из кэша результат запроса к Yandex словарю в виде JSON
+                    // строки и конвертируем в текст с HTML тэгами для отображения в TextView
+                    String dictionaryText = JsonConverter.prepareDictionaryText(cache.get(i).dictionaryJsonResult);
+
+                    Log.d("info", cache.get(i).translatorJsonResult);
+                    Log.d("info", cache.get(i).dictionaryJsonResult);
+
+                    // вывод обработанного ответа переводчика и словаря (с HTML тэгами) в
+                    // соответствующие TextView
+                    printQueryResults(translatorText, dictionaryText);
+
+                    // устанавливаем флаг, означающий, что инфорация из кэша извлечена и не
+                    // потребуется делать новый HTTP POST запрос
+                    isCacheFound = true;
+
+                    break; // выходим из цикла сканирования, сохраненных в кэше, запросов
+                }
+            }
+
+            // если данные из кэша не извлечены, запускаем Task для HTTP POST запроса
+            if (!isCacheFound)
+            {
+                // если еще идет процесс http запроса для перевода с прошлого ввода символа
+                if (httpPostTask != null)
+                    httpPostTask.cancel(true); // отмена процесса http запроса
+
+                // запустить новый процесс http запроса
+                httpPostTask = new HttpPostTask();
+                httpPostTask.execute();
+            }
+
+        } else // иначе: если символов в поле ввода текста нет
+        {
+            textViewTranslator.setText(" ");
+            textViewDictionary.setText(" ");
+        }
     }
 
+
+    /**
+     * Функция вывода результатов обработки ответа от Yandex словаря и Yandex переводчика в
+     * соответствующие TextView
+     *
+     * @param translatorText - строка с результатом работы Yandex переводчика, который был преобразован
+     *                         из JSON в текст с тэгами HTML, для дальнейшего отображения в TextView
+     * @param dictionaryText - строка с результатом работы Yandex словаря, который был преобразован
+     *                         из JSON в текст с тэгами HTML, для дальнейшего отображения в TextView
+     */
+    private void printQueryResults(String translatorText, String dictionaryText)
+    {
+        switch (translatorText)
+        {
+            case "JSON error":
+            case "error code":
+            case "no translations":
+                textViewTranslator.setText(R.string.translatorDataError);
+                break;
+
+            default:
+
+                // проверка версии SDK, для того, чтобы не вызывать устаревший (deprecated) метод
+                if (Build.VERSION.SDK_INT > 24)
+                    textViewTranslator.setText(Html.fromHtml(translatorText, Html.FROM_HTML_MODE_LEGACY));
+                else
+                    textViewTranslator.setText(Html.fromHtml(translatorText));
+
+                break;
+        }
+
+        switch (dictionaryText)
+        {
+            case "no articles":
+                textViewDictionary.setText(" ");
+                break;
+
+            case "JSON error":
+                textViewDictionary.setText(R.string.dictionaryDataError);
+                break;
+
+            default:
+                // проверка версии SDK, для того, чтобы не вызывать устаревший (deprecated) метод
+                if (Build.VERSION.SDK_INT > 24)
+                    textViewDictionary.setText(Html.fromHtml(dictionaryText, Html.FROM_HTML_MODE_LEGACY));
+                else
+                    textViewDictionary.setText(Html.fromHtml(dictionaryText));
+
+                break;
+        }
+    }
 
     /**
      * Класс, реализующий выполнение HTTP POST запроса к удаленному сервису (запрос работает в фоне)
@@ -380,10 +466,11 @@ public class TranslationActivity extends AppCompatActivity
                     // добавляем к запросу тэг с языками (текста и его перевода), а также сам текст для перевода
                     dataOutputStream.writeBytes("&lang=" + langPare + "&text=" + URLEncoder.encode(inputText, "UTF-8"));
 
+/*
                     Log.d("info", queryString);
-                    Log.d("info", "&lang=" + "en-ru" + "&text=" + URLEncoder.encode(inputText, "UTF-8"));
+                    Log.d("info", "&lang=" + langPare + "&text=" + URLEncoder.encode(inputText, "UTF-8"));
+*/
                     Log.d("info", "response code: " + Integer.toString(urlConnection.getResponseCode()));
-
 
                     // разбираем код ответа на HTTP POST запрос
                     switch (urlConnection.getResponseCode()) {
@@ -400,6 +487,20 @@ public class TranslationActivity extends AppCompatActivity
                             }
 
                             httpJsonResult[i] = buffer.toString();
+
+                            // если это 2-я итерация цикла (т.е. 2-й по счету HTTP POST запрос из пары,
+                            // т.к. 1-й запрос к Yandex словарю уже был, то проводим кэшировние результатов
+                            if (i == 1)
+                            {
+                                // проводим кэширование - сохраняем результат данной пары HTTP POST запросов
+                                // inputText - вводимый для перевода текст,
+                                // langPare - тэг для указания языка текста и языка перевода (типа en-ru),
+                                // httpJsonResult[0] - ответ от Yandex словаря,
+                                // httpJsonResult[1] - ответ от Yandex переводчика
+                                cache.add(new TranslationCacheEntry(inputText, langPare,
+                                                                    httpJsonResult[1], httpJsonResult[0]));
+                            }
+
                             break;
 
                         case 403: // принят код "invalid key" - ошибка ключа, полученного в кабинете разработчика
@@ -435,41 +536,11 @@ public class TranslationActivity extends AppCompatActivity
             // Yandex переводчика в строку с HTML тэгами, пригодную для отображения с помощью TextView
             translatorText = JsonConverter.prepareTranslatorText(result[1]);
 
-            switch (translatorText)
-            {
-                case "JSON error":
-                case "error code":
-                case "no translations":
-                    textViewTranslator.setText(R.string.translatorDataError);
-                    break;
-
-                default:
-                    // вывод текста переводчика (с HTML тэгами) в соответствующий TextView
-                    textViewSetHtmlText(textViewTranslator, translatorText);
-
-                    break;
-            }
-
-
             // конвертируем, принятую в результате HTTP POST запроса, JSON строку с ответом от
             // Yandex словаря в строку с HTML тэгами, пригодную для отображения с помощью TextView
             dictionaryText = JsonConverter.prepareDictionaryText(result[0]);
 
-            switch (dictionaryText)
-            {
-                case "no articles":
-                    textViewDictionary.setText(" ");
-                    break;
-
-                case "JSON error":
-                    textViewDictionary.setText(R.string.dictionaryDataError);
-                    break;
-
-                default:
-                    // вывод текста словаря (с HTML тэгами) в соответствующий TextView
-                    textViewSetHtmlText(textViewDictionary, dictionaryText);
-                    break;
-            }
+            printQueryResults(translatorText, dictionaryText);
         }
 
 
