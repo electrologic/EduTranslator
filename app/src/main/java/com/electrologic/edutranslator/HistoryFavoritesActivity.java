@@ -1,36 +1,22 @@
 package com.electrologic.edutranslator;
 
-import android.support.design.widget.TabLayout;
 import android.support.v7.app.AppCompatActivity;
-
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentPagerAdapter;
-import android.support.v4.view.ViewPager;
 import android.os.Bundle;
-
+import android.util.Log;
 import android.widget.Button;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.content.Intent;
+import android.widget.ListView;
+import java.util.ArrayList;
 
 
-public class HistoryFavoritesActivity extends AppCompatActivity {
+public class HistoryFavoritesActivity extends AppCompatActivity
+{
+    private TranslationCache history; // пул истории переводов
+    ListView historyListView;
+    ArrayList<HistoryListEntry> entries;
 
-    /**
-     * The {@link android.support.v4.view.PagerAdapter} that will provide
-     * fragments for each of the sections. We use a
-     * {@link FragmentPagerAdapter} derivative, which will keep every
-     * loaded fragment in memory. If this becomes too memory intensive, it
-     * may be best to switch to a
-     * {@link android.support.v4.app.FragmentStatePagerAdapter}.
-     */
-    private SectionsPagerAdapter mSectionsPagerAdapter;
-
-    /**
-     * The {@link ViewPager} that will host the section contents.
-     */
-    private ViewPager mViewPager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -38,78 +24,71 @@ public class HistoryFavoritesActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_history_favorites);
 
-        // Create the adapter that will return a fragment for each of the three
-        // primary sections of the activity.
-        mSectionsPagerAdapter = new SectionsPagerAdapter(getSupportFragmentManager());
-
-        // Set up the ViewPager with the sections adapter.
-        mViewPager = (ViewPager) findViewById(R.id.container);
-        mViewPager.setAdapter(mSectionsPagerAdapter);
-
-        TabLayout tabLayout = (TabLayout) findViewById(R.id.tabs);
-        tabLayout.setupWithViewPager(mViewPager);
-
         Button buttonHistoryFavorites = (Button) findViewById(R.id.btnReturnToTranslate);
 
         buttonHistoryFavorites.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v)
             {
+                finish();
+/*
                 Intent intent = new Intent(HistoryFavoritesActivity.this, TranslationActivity.class);
                 startActivity(intent);
+*/
             }
         });
-    }
 
 
-    /**
-     * A {@link FragmentPagerAdapter} that returns a fragment corresponding to
-     * one of the sections/tabs/pages.
-     */
-    public class SectionsPagerAdapter extends FragmentPagerAdapter
-    {
+        // получаем ссылку на intent, сформированный при переключении на данную activity
+        // (история/избранное) из основной activity (перевод)
+        Intent intent = getIntent();
 
-        public SectionsPagerAdapter(FragmentManager fm)
+        // максимальное кол-во элементов в истории переводов
+        int historyMaxSize = Integer.parseInt(intent.getStringExtra("historyMaxSize"));
+
+        // кол-во элементов в истории переводов
+        int historySize = Integer.parseInt(intent.getStringExtra("historySize"));
+
+
+        Log.d("info", "max history size = " + Integer.toString(historyMaxSize));
+        Log.d("info", "history size = " + Integer.toString(historySize));
+
+
+        if (historySize > 0) // если элементы в истории переводов присутствуют, извлекаем их из Extra
         {
-            super(fm);
-        }
+            history = new TranslationCache(historyMaxSize);
 
-        @Override
-        public Fragment getItem(int position)
-        {
-            switch (position)
+            for (int i = 0; i < historySize; i++)
             {
-                case 0:
-                    FragmentHistory fragmentHistory = new FragmentHistory();
-                    return fragmentHistory;
+                // начинаем заполнять пул с последнего переданного через Extra перевода, т.к.
+                // добавление в пул производится всегда на нулевую позицию
+                String strIndex = Integer.toString(historySize - i - 1);
 
-                case 1:
-                    FragmentFavorites fragmentFavorites = new FragmentFavorites();
-                    return fragmentFavorites;
-
-                default:
-                    return null;
+                // заполняем пул истории просмотров для данной activity
+                history.add(new TranslationCacheEntry(
+                        intent.getStringExtra("text_" + strIndex),
+                        intent.getStringExtra("langPare_" + strIndex),
+                        intent.getStringExtra("translatorText_" + strIndex),
+                        intent.getStringExtra("dictionaryText_" + strIndex)));
             }
-        }
 
-        @Override
-        public int getCount()
-        {
-            // Show 2 total pages.
-            return 2;
-        }
 
-        @Override
-        public CharSequence getPageTitle(int position)
-        {
-            switch (position)
+            // получаем экземпляр элемента ListView
+            historyListView = (ListView)findViewById(R.id.lvHistory);
+            entries = new ArrayList<>();
+
+            for (int i = 0; i < history.getSize(); i++)
             {
-                case 0:
-                    return "История";
-                case 1:
-                    return "Избранное";
+                Log.d("info", history.get(i).translatorJsonResult);
+
+//                String translation = JsonConverter.prepareTranslatorText(history.get(i).translatorJsonResult);
+
+                entries.add(new HistoryListEntry(history.get(i).text, history.get(i).translatorJsonResult, history.get(i).langPare));
             }
-            return null;
+
+            HistoryListAdapter historyListAdapter = new HistoryListAdapter(this, entries);
+            historyListView.setAdapter(historyListAdapter);
+
         }
     }
 }

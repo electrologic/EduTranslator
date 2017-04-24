@@ -11,6 +11,7 @@
 package com.electrologic.edutranslator;
 
 
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.AsyncTask;
@@ -18,6 +19,8 @@ import android.support.v7.app.AppCompatActivity;
 
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.DisplayMetrics;
+import android.view.ViewTreeObserver;
 import android.widget.AdapterView;
 import android.widget.Spinner;
 import android.widget.ArrayAdapter;
@@ -29,6 +32,7 @@ import android.view.View.OnClickListener;
 import android.content.Intent;
 import android.util.Log;
 import android.text.Html;
+import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
@@ -61,6 +65,9 @@ public class TranslationActivity extends AppCompatActivity
     TranslationCache cache; // пул для кэширования результатов HTTP POST запросов
     final int TRANSLATION_CACHE_POOL_SIZE = 20; // максимальное кол-во кэшируемых результатов запросов
 
+    TranslationCache history; // пул для сохранения истории переводов (истории HTTP POST запросов)
+    final int HISTORY_POOL_SIZE = 20; // максимальное кол-во сохраненных в истории переводов
+
     // ключ Yandex API переводчик
     static final String apiKeyTranslator = "trnsl.1.1.20170417T075753Z.bee3a11ff099758f.c21fd8ae398d3ff4a57a478779479fb5f0a91f27";
     // ключ Yandex API словарь
@@ -79,6 +86,15 @@ public class TranslationActivity extends AppCompatActivity
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_translation);
+
+        // иницализируем парсер JSON, который будем получать в результате HTTP POST запросов
+        jsonConverter = JsonConverter.init(1024, 2048);
+
+        // инициализируем пул для кэширования результатов HTTP POST запросов
+        cache = new TranslationCache(TRANSLATION_CACHE_POOL_SIZE);
+
+        // инициализируем пул для сохранения истории переводов (истории HTTP POST запросов)
+        history = new TranslationCache(HISTORY_POOL_SIZE);
 
         // инициализация выпадающего перечня (Spinner) для выбора языка вводимого текста
         //
@@ -154,9 +170,11 @@ public class TranslationActivity extends AppCompatActivity
         // тот, который был выбран для ввода текста
         TextView textViewLangSwap = (TextView) findViewById(R.id.textViewLangSwap);
         // обработка нажатия для данного элемента
-        textViewLangSwap.setOnClickListener(new OnClickListener() {
+        textViewLangSwap.setOnClickListener(new OnClickListener()
+        {
             @Override
-            public void onClick(View v) {
+            public void onClick(View v)
+            {
                 // если выбранный язык вводимого текста и выбранный язык перевода не совпадают
                 if (savedSelectedLang != savedSelectedLangTranslate)
                 {
@@ -184,13 +202,13 @@ public class TranslationActivity extends AppCompatActivity
 
 
 
-
         textViewTranslator = (TextView) findViewById(R.id.tvTranslator);
         textViewDictionary = (TextView) findViewById(R.id.tvDictionary);
 
         editText = (EditText) findViewById(R.id.editText);
         // обработчик изменения текста в EditText
-        editText.addTextChangedListener(new TextWatcher() {
+        editText.addTextChangedListener(new TextWatcher()
+        {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
@@ -211,15 +229,91 @@ public class TranslationActivity extends AppCompatActivity
                 runQueryOrGetCache();
             }
         });
+        // подключаем к EditText обработчик для определения события появления или скрытия клавиатуры
+        editText.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener()
+        {
+            @Override
+            public void onGlobalLayout()
+            {
+                if (isKeyboardShown(editText.getRootView())) // если клавиатуры выведена
+                {
+                    // установка для EditText рамки голубого цвета и толщиной линии в 2dp
+                    editText.setBackgroundResource(R.drawable.border_selected);
+
+                } else // иначе: если клавиатура скрыта
+                {
+                    // установка для EditText рамки серого цвета и толщиной линии в 1dp
+                    editText.setBackgroundResource(R.drawable.border);
+
+                    // ссылка на строку вводимого в TextEdit текста
+                    inputText = editText.getText().toString();
+
+                    // если введенный текст имеет место быть (т.е. содержит символы)
+                    if (!(inputText.isEmpty()))
+                    {
+                        // тэг для указания в запросе языка текста и языка перевода (например, "ru-en")
+                        langPare = langTags[langSelectSpinner.getSelectedItemPosition()] + "-" +
+                                   langTags[langTranslateSelectSpinner.getSelectedItemPosition()];
+
+                        // проходимся циклом по всем элементам истории переводов и проверяем был
+                        // ли в ней уже такой перевод
+                        for (int i = 0; i < history.getSize(); i++)
+                        {
+                            // если перевод с таким же, как сейчас вводимым текстом и языковой парой обнаружен
+                            if (inputText.equals(history.get(i).text) && langPare.equals(history.get(i).langPare))
+                            {
+                                history.remove(i); // удаляем его из истории и ...
+                                // ... добавляем новый в самое начало (на 0-ю позицию) истории
+                                history.add(new TranslationCacheEntry(inputText, langPare,
+                                                                      translatorText, dictionaryText));
+                                return; // выходим из обработчика
+                            }
+                        }
+
+                        // сюда доходим, если пул истории переводов не содержит аналогичный перевод
+                        // добавляем новый перевод в историю
+                        history.add(new TranslationCacheEntry(inputText, langPare,
+                                                              translatorText, dictionaryText));
+                    }
+                }
+            }
+        });
 
 
-        // кнопка "история/избранное"
+        // кнопка "история/избранное". Обработчик нажатия.
         Button buttonHistoryFavorites = (Button) findViewById(R.id.btnHistoryFavorites);
         buttonHistoryFavorites.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v)
             {
                 Intent intent = new Intent(TranslationActivity.this, HistoryFavoritesActivity.class);
+
+                // передаем максимально допустимое кол-во в истории переводов
+                intent.putExtra("historyMaxSize", Integer.toString(history.getMaxSize()));
+
+                // передаем кол-во элементов в истории переводов
+                intent.putExtra("historySize", Integer.toString(history.getSize()));
+
+                // если в истории переводов присутствуют элементы, то требуется произвести их
+                // передачу во 2-ю activity с помощью метода putExtra()
+                if (history.getSize() != 0)
+                {
+                    // для каждого из переводов передаем: введенный текст, языковую пару, ответ
+                    // Yandex переводчика и ответ Yandex словаря
+                    for (int i = 0; i < history.getSize(); i++)
+                    {
+                        intent.putExtra("text_" + Integer.toString(i), history.get(i).text);
+                        intent.putExtra("langPare_" + Integer.toString(i), history.get(i).langPare);
+                        intent.putExtra("translatorText_" + Integer.toString(i), history.get(i).translatorJsonResult);
+                        intent.putExtra("dictionaryText_" + Integer.toString(i), history.get(i).dictionaryJsonResult);
+
+                        Log.d("info", history.get(i).text);
+                        Log.d("info", history.get(i).langPare);
+                        Log.d("info", history.get(i).translatorJsonResult);
+                        Log.d("info", history.get(i).dictionaryJsonResult);
+                    }
+                }
+
                 startActivity(intent);
             }
         });
@@ -234,31 +328,42 @@ public class TranslationActivity extends AppCompatActivity
             savedSelectedLangTranslate = 2; // сохраняем индекс выбранного языка перевода
         }
 
-
-        // иницализируем парсер JSON, который будем получать в результате HTTP POST запросов
-        jsonConverter = JsonConverter.init(1024, 2048);
-
-        // инициализируем пул для кэширования результатов HTTP POST запросов
-        cache = new TranslationCache(TRANSLATION_CACHE_POOL_SIZE);
-
-/*
-        // Check whether we're recreating a previously destroyed instance
-        if (savedInstanceState != null)
+        // кнопка "о приложении"
+        Button buttonAbout = (Button) findViewById(R.id.btnAbout);
+        buttonAbout.setOnClickListener(new OnClickListener()
         {
-            // Restore value of members from saved state
-            langSelectSpinner.setSelection(savedInstanceState.getInt(LANG_SELECT_CHOISE));
-            langTranslateSelectSpinner.setSelection(savedInstanceState.getInt(LANG_TRANSLATE_SELECT_CHOISE));
+            @Override
+            public void onClick(View v)
+            {
+                // по нажатию на кнопку "о приложении", переключаемся на activity с информацией
+                Intent intent = new Intent(TranslationActivity.this, AboutActivity.class);
+                startActivity(intent);
+            }
+        });
 
-            Log.d("info", "restore (create) instance state");
-            Log.d("info", Integer.toString(savedInstanceState.getInt(LANG_SELECT_CHOISE)));
-            Log.d("info", Integer.toString(savedInstanceState.getInt(LANG_TRANSLATE_SELECT_CHOISE)));
+    }
 
-        } else
-        {
-            langSelectSpinner.setSelection(0);
-            langTranslateSelectSpinner.setSelection(2);
-        }
-*/
+
+    /**
+     * Метод для определения выведена ли клавиатура на экран или нет. Основан на измерении области
+     * вывода (которая меньше, когда клавиатура выводится).
+     * @param rootView - ссылка на родительский элемент по отношению к EditText, в который будет
+     *                   осуществляться ввод с помощью программной клавиатуры
+     * @return false - клавиатура скрыта; true - клавиатура выведена
+     */
+    private boolean isKeyboardShown(View rootView)
+    {
+        final int softKeyboardHeight = 100; // минимальная высота клавиатуры (в DP)
+        Rect r = new Rect();
+
+        rootView.getWindowVisibleDisplayFrame(r); // в r размеры родительского (для EditText) эл-та
+        DisplayMetrics dm = rootView.getResources().getDisplayMetrics();
+        // получаем разницу (по высоте) родительского (для EditText) элемента и видимой части
+        int heightDiff = rootView.getBottom() - r.bottom;
+
+        // если разница превышает минимальную высоту клавиатуры (в DP), то значит клавиатуры
+        // выводится - возвращаем true; если не превышает - клавиатура скрыта - возвращаем false
+        return heightDiff > softKeyboardHeight * dm.density;
     }
 
 
@@ -283,7 +388,6 @@ public class TranslationActivity extends AppCompatActivity
     {
         // Always call the superclass so it can restore the view hierarchy
         super.onRestoreInstanceState(savedInstanceState);
-
 
         // вывод сохраненных полей для обработанных ответов переводчика и словаря (с HTML тэгами) в
         // соответствующие TextView

@@ -67,14 +67,20 @@ public class TranslationCache
             return new TranslationCacheEntry("", "", "", "");
     }
 
-    int getSize()
+    public int getSize()
     {
         return pool.size();
     }
 
-    int getMaxSize()
+    public int getMaxSize()
     {
         return maxLength;
+    }
+
+    public void remove(int i)
+    {
+        if (i >= 0 && i < pool.size())
+            pool.remove(i);
     }
 }
 

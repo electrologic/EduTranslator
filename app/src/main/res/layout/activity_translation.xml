@@ -36,14 +36,14 @@
             android:textSize="10sp" />
 
         <Button
-            android:id="@+id/btnAddToFavorites"
+            android:id="@+id/btnAbout"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginLeft="15dp"
             android:layout_marginRight="20dp"
             android:layout_marginTop="6dp"
             android:layout_weight="0.5"
-            android:text="@string/make_translation"
+            android:text="@string/about_app"
             android:textSize="10sp" />
 
     </LinearLayout>

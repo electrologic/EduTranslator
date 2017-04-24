@@ -8,11 +8,18 @@
 
     <string name="text_arrow">↔</string>
 
-    <string name="make_translation">Добавить</string>
+    <string name="about_app">О приложении</string>
     <string name="history_favorites">История/Избранное</string>
     <string name="back_to_translate">Перевод</string>
 
+    <string name="translator_history">История переводов</string>
+
     <string name="dictionaryDataError">ошибка в данных, полученных от Yandex словаря</string>
     <string name="translatorDataError">ошибка в данных, полученных от Yandex переводчика</string>
+
+    <string name="about_caption">online переводчик EduTranslator</string>
+
+    <string name="about_1">Для выполнения перевода задействует сервисы Yandex переводчик и Yandex словарь</string>
+    <string name="about_2">Приложение создано в рамках тестового задания для школы мобильной разработки Yandex. Автор: Гасанов Сергей Рафаилович</string>
 
 </resources>
